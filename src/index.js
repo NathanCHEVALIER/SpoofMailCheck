@@ -1,41 +1,67 @@
 const dns = require('dns');
 
-/**
- * Soft: just all mechanism
- * Advanced: build the list and check for every IP
- */
+const Status = {
+    Valid: 'Valid',
+    Undefined: 'Undefined',
+    Error: 'Error',
+    DnsError: 'DNS Resolution Error',
+    MultipleSpfRecord: 'Multiple SPF Record Collision',
+    NoSpfRecord: 'No SPF Record Found'
+}
 
-const checkSPF = async (domainName) => {
-    dns.resolveTxt(domainName, function(err, records) {
-        records.forEach(function(r) {
-            if (r[0] && r[0].includes("v=spf1")) {
-                spfRecord = r[0].split('v=spf1 ');
 
-                spfRecord.filter( elt => elt != '' ).forEach(elt => {
-                    console.log('SPF for ' + domainName + ': v=spf1 ' + elt);
+const checkSPF = async (domainName, advanced = false) => {
+    return new Promise( async (resolve, reject) => {
+        return await getSPF(domainName).then(spf => {
+            spf.mechanisms = [];
+            spf.modifiers = [];
 
-                    let mechanisms = elt.trim().split(' ');
-                    
-                    mechanisms.forEach(a => {
-                        if (a.match(/[-~+?]{1}all/))
-                            console.log(a);
+            spf.spfRecord.slice(7).trim().split(' ').forEach(elt => {
+                if ((found = elt.match(/^([-~+?]?)(all|ip4|ip6|a|mx|ptr|exists|include)(:.*)?$/))) {
+                    spf.mechanisms.push({
+                        'mechanism': found[0],
+                        'qualifier': found[1],
+                        'rule': found[2],
+                        'value': found[3] === undefined ? found[3] : found[3].slice(1)
                     });
+                }
+                else if ((found = elt.match(/^(redirect|exp)(=.*)?$/))) {
+                    spf.modifiers.push({ 'mechanism': found[0] });
+                }
+                else if ( !elt.match(/^\s*$/)) {
+                    console.log('Unexpected Token: |' + elt + '|');
+                }
+            });
+            
+            resolve(spf);
+        })
+        .catch(e => reject(e));
+    });
+}
 
-                    let modifiers = mechanisms.filter(elt => {
-                        return elt.includes('=');
-                    })
 
-                    console.log(modifiers);
-                });
-            }
+const getSPF = async (domainName) => {
+    return new Promise( (resolve, reject) => {
+        dns.resolveTxt(domainName, async (err, records) => {
+            if (err)
+                reject({'domain': domainName, 'dnsStatus': Status.DnsError });
+
+            let spf = records.filter( record => {
+                return record[0] && record[0].startsWith("v=spf1");
+            });
+
+            if (spf.length > 1)
+                reject({'domain': domainName, 'dnsStatus': Status.MultipleSpfRecord });
+                
+            if (spf.length < 1)
+                reject({'domain': domainName, 'dnsStatus': Status.NoSpfRecord});
+
+            resolve({'domain': domainName, 'dnsStatus': Status.Valid, 'spfRecord': spf[0][0]});
         });
-
-        if (!spfRecord) {
-            console.log("No SPF Record found");
-        }
     });
 }
 
 module.exports = {
-    checkSPF,
+    getSPF,
+    checkSPF
 }
