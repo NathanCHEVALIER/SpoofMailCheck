@@ -4,6 +4,8 @@
 
 Educationnal purpose only
 
+A simple NodeJS tool that check SPF records for potential security flaws.
+
 ## Infos
 
  * Soft: just all mechanism
